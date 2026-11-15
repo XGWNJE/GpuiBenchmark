@@ -21,6 +21,7 @@ pub struct StylePreview {
     compact: bool,
     text_size: usize,
     activation_count: u64,
+    benchmark_mode: bool,
     _input_subscription: Subscription,
 }
 
@@ -41,8 +42,71 @@ impl StylePreview {
             compact: false,
             text_size: 1,
             activation_count: 0,
+            benchmark_mode: false,
             _input_subscription: input_subscription,
         }
+    }
+
+    pub fn new_benchmark(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut preview = Self::new(window, cx);
+        preview.benchmark_mode = true;
+        preview
+    }
+
+    pub fn benchmark_step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.activation_count = self.activation_count.saturating_add(1);
+        self.enabled = self.activation_count % 2 == 0;
+        self.selected = self.activation_count % 3 == 0;
+        let title = format!("GPUI stream · {}", self.activation_count);
+        self.title
+            .update(cx, |state, cx| state.set_value(title, window, cx));
+        cx.notify();
+    }
+
+    fn render_benchmark(&self, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .p_3()
+            .gap_3()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .child(
+                Input::new(&self.title)
+                    .large()
+                    .min_h(MIN_TOUCH_TARGET)
+                    .w_full(),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(
+                        Button::new("benchmark-component-button")
+                            .label("主要按钮")
+                            .primary()
+                            .large()
+                            .min_h(MIN_TOUCH_TARGET),
+                    )
+                    .child(
+                        Switch::new("benchmark-component-switch")
+                            .checked(self.enabled)
+                            .label("启用"),
+                    )
+                    .child(
+                        Checkbox::new("benchmark-component-check")
+                            .checked(self.selected)
+                            .label("选中")
+                            .min_h(MIN_TOUCH_TARGET),
+                    ),
+            )
+            .child(
+                Progress::new("benchmark-component-progress")
+                    .value(((self.activation_count % 11) * 10) as f32),
+            )
     }
 
     fn activate_sample(&mut self, cx: &mut Context<Self>) {
@@ -404,6 +468,9 @@ impl StylePreview {
 
 impl Render for StylePreview {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.benchmark_mode {
+            return self.render_benchmark(cx).into_any_element();
+        }
         div()
             .size_full()
             .min_h_0()
@@ -425,5 +492,6 @@ impl Render for StylePreview {
                     .child(self.render_typography(cx)),
             )
             .overflow_y_scrollbar()
+            .into_any_element()
     }
 }

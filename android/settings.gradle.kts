@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GpuiLab"
+rootProject.name = "GpuiBenchmark"
 include(":app")

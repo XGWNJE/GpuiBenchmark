@@ -125,7 +125,7 @@ try {
     try {
         $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     }
-    catch { throw 'Another GpuiLab build is using this repository.' }
+    catch { throw 'Another GPUI benchmark build is using this repository.' }
 
     if ($Clean) {
         $buildDirectories = @(Get-BuildDirectories)
@@ -177,7 +177,7 @@ try {
         $cargoArgs += ' --release'
         $profile = 'release'
     }
-    Write-Output "Building GPUI Lab $Configuration for $Abi. Logs are in .build/logs."
+    Write-Output "Building GPUI benchmark $Configuration for $Abi. Logs are in .build/logs."
     Invoke-BuildProcess (Get-Command cargo.exe).Source $cargoArgs 'cargo'
 
     $nativeDir = Join-Path $buildRoot "jniLibs/$Abi"
@@ -196,7 +196,7 @@ try {
     $apk = Join-Path $buildRoot "gradle/app/outputs/apk/$profile/app-$profile.apk"
     $distDir = Join-Path $repoRoot 'dist'
     New-Item -ItemType Directory -Path $distDir -Force | Out-Null
-    $destination = Join-Path $distDir "gpui-lab-$Abi-$profile.apk"
+    $destination = Join-Path $distDir "gpui-benchmark-$Abi-$profile.apk"
     Copy-Item -LiteralPath $apk -Destination $destination -Force
     $digest = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$destination.sha256", "$digest  $([IO.Path]::GetFileName($destination))`n")

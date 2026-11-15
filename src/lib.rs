@@ -1,8 +1,13 @@
+mod benchmark;
 mod metrics;
 mod workload;
 
 #[cfg(target_os = "android")]
 mod android_host;
+#[cfg(target_os = "android")]
+mod benchmark_panel;
+#[cfg(target_os = "android")]
+mod benchmark_view;
 #[cfg(target_os = "android")]
 mod style_preview;
 #[cfg(target_os = "android")]
@@ -18,7 +23,7 @@ fn android_main(app: android_activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
-            .with_tag("GpuiLab"),
+            .with_tag("GpuiBenchmark"),
     );
     jni::install_panic_hook();
     let _platform = jni::init_platform(&app);
@@ -32,7 +37,7 @@ fn android_main(app: android_activity::AndroidApp) {
             let lab = cx.new(|cx| ui::Lab::new(window, cx));
             cx.new(|cx| gpui_kit::component::Root::new(lab, window, cx))
         })
-        .expect("open GPUI Lab window");
+        .expect("open GPUI benchmark window");
         cx.activate(true);
     });
 }

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GPUI benchmark · 设备排行榜</title>
+  <style>
+    :root { color-scheme: dark; --bg:#09121c; --panel:#101f2c; --line:#243746; --muted:#91a7b7; --text:#ecf4f8; --cyan:#55dce7; --lime:#d2f87b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:Inter,"Microsoft YaHei",system-ui,sans-serif; line-height:1.5; }
+    button,input { font:inherit; }
+    button,a { -webkit-tap-highlight-color:transparent; }
+    button { min-height:48px; cursor:pointer; color:inherit; }
+    button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--cyan); outline-offset:4px; }
+    a { color:var(--cyan); }
+    header { position:sticky; top:0; z-index:2; border-bottom:1px solid var(--line); background:#09121cf2; backdrop-filter:blur(16px); }
+    .bar { max-width:1200px; min-height:80px; margin:auto; padding:12px 24px; display:flex; flex-wrap:wrap; align-items:center; gap:16px; }
+    .brand { color:var(--text); text-decoration:none; font-size:20px; font-weight:750; letter-spacing:-.6px; margin-right:auto; }
+    .mark { display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; border:1px solid var(--cyan); border-radius:9px; color:var(--cyan); margin-right:10px; font-weight:500; }
+    .nav-button { border:0; border-radius:12px; background:transparent; padding:0 16px; color:var(--muted); }
+    .nav-button:hover,.nav-button[aria-pressed="true"] { background:var(--panel); color:var(--text); }
+    main { width:min(1200px,100%); margin:auto; padding:52px 24px 60px; }
+    .hero { display:flex; flex-wrap:wrap; align-items:flex-end; gap:24px; margin-bottom:36px; }
+    .hero-copy { flex:1 1 280px; }
+    .eyebrow { color:var(--cyan); font-size:12px; font-weight:650; letter-spacing:2px; margin:0 0 10px; }
+    h1 { font-size:clamp(32px,5vw,48px); line-height:1.15; letter-spacing:-1.5px; margin:0 0 16px; }
+    .description { color:var(--muted); margin:0; max-width:45em; font-size:14px; }
+    .totals { display:flex; gap:32px; }
+    .total-value { display:block; font-size:28px; font-variant-numeric:tabular-nums; }
+    .total-label { color:var(--muted); font-size:12px; }
+    .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:20px; }
+    .search { flex:1 1 240px; min-width:0; max-width:440px; min-height:48px; padding:0 16px; background:var(--panel); border:1px solid var(--line); border-radius:12px; color:var(--text); }
+    .refresh { border:1px solid var(--line); background:transparent; border-radius:12px; padding:0 18px; }
+    .status { color:var(--muted); font-size:12px; margin-left:auto; }
+    .board { border:1px solid var(--line); border-radius:18px; overflow:hidden; }
+    .board-head,.entry { display:grid; grid-template-columns:56px minmax(120px,1fr) minmax(80px,150px) minmax(80px,140px); gap:12px; align-items:center; padding:18px 20px; }
+    .board-head { background:#0d1a26; color:var(--muted); font-size:12px; }
+    .entry { width:100%; border:0; border-top:1px solid var(--line); background:var(--panel); text-align:left; }
+    .entry:hover { background:#152a39; }
+    .entry:first-of-type .score { color:var(--lime); }
+    .rank { font-size:18px; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .model { overflow-wrap:anywhere; }
+    .manufacturer { display:block; color:var(--muted); font-size:12px; margin-top:3px; }
+    .score { font-size:23px; font-weight:650; letter-spacing:-.5px; text-align:right; font-variant-numeric:tabular-nums; }
+    .detail-meta { color:var(--muted); font-size:12px; text-align:right; }
+    .empty { padding:52px 24px; color:var(--muted); text-align:center; background:var(--panel); }
+    .board-scroll { overflow:auto; max-width:100%; }
+    .board-content { min-width:480px; }
+    .footnote { color:var(--muted); font-size:12px; margin:16px 0 0; }
+    .help { border:1px solid var(--line); border-radius:18px; padding:28px; max-width:780px; background:var(--panel); }
+    .help h2 { font-size:22px; margin:0 0 20px; }
+    .help h3 { color:var(--cyan); font-size:14px; margin:24px 0 8px; }
+    .help p { color:var(--muted); font-size:14px; }
+    .formula { font-family:ui-monospace,monospace; color:var(--lime) !important; overflow-wrap:anywhere; }
+    dialog { width:min(860px,calc(100% - 24px)); max-height:calc(100dvh - 32px); border:1px solid var(--line); border-radius:20px; padding:0; background:var(--bg); color:var(--text); }
+    dialog::backdrop { background:#000a; backdrop-filter:blur(3px); }
+    .dialog-head { position:sticky; top:0; display:flex; align-items:center; gap:16px; padding:20px 24px; background:var(--bg); border-bottom:1px solid var(--line); }
+    .dialog-head h2 { font-size:20px; margin:0; overflow-wrap:anywhere; }
+    .close { margin-left:auto; width:48px; flex-shrink:0; border:1px solid var(--line); border-radius:12px; background:var(--panel); font-size:24px; }
+    .dialog-body { padding:24px; }
+    .run-summary { display:flex; flex-wrap:wrap; gap:12px 24px; margin-bottom:24px; }
+    .run-summary strong { color:var(--lime); font-size:28px; }
+    .run-summary p { margin:0; color:var(--muted); font-size:12px; }
+    .case-table { width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
+    .case-table th,.case-table td { text-align:right; border-bottom:1px solid var(--line); padding:12px 10px; font-variant-numeric:tabular-nums; }
+    .case-table th:first-child,.case-table td:first-child { text-align:left; }
+    .case-table th { color:var(--muted); font-weight:500; }
+    .reasons { color:#ffcc96; background:#2a221d; padding:12px 16px; border-radius:12px; margin:0 0 20px; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+  <header><div class="bar">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true">G</span>GPUI benchmark</a>
+    <button id="ranking-tab" class="nav-button" aria-pressed="true">排行榜</button>
+    <button id="help-tab" class="nav-button" aria-pressed="false">测试说明</button>
+  </div></header>
+  <main>
+    <section id="ranking-view">
+      <div class="hero">
+        <div class="hero-copy"><h1>Android 设备排行榜</h1><p class="description">四档数据负载、自动滚动与样式场景的标准测试成绩。</p></div>
+        <div class="totals"><div><span id="model-count" class="total-value">—</span><span class="total-label">机型</span></div><div><span id="run-count" class="total-value">—</span><span class="total-label">标准测试</span></div></div>
+      </div>
+      <div class="toolbar"><input id="model-filter" class="search" type="search" placeholder="搜索机型或厂商" aria-label="搜索机型或厂商"><button id="refresh" class="refresh">刷新</button><span id="status" class="status" role="status">加载中</span></div>
+      <div class="board"><div class="board-scroll"><div class="board-content"><div class="board-head"><span>排名</span><span>设备</span><span style="text-align:right">得分</span><span style="text-align:right">测试</span></div><div id="entries"></div></div></div></div>
+      <p class="footnote">每个机型展示最高分。点击成绩查看 30 项测试明细。</p>
+    </section>
+    <section id="help-view" class="help" hidden>
+      <h2>测试协议与计分</h2>
+      <h3>测试内容</h3><p>gpui-benchmark-v1 包含四档负载的原位更新与自动滚动，以及浅色、深色样式场景。每个场景重复 3 次，共 30 项，每项预热 3 秒、测量 20 秒。</p>
+      <h3>分数计算</h3><p>服务端根据各项原始统计重新计算分数。60 FPS、P95 在帧预算以内、更新全部处理时，基准为 1000 分。高刷新率设备可以超过这一分数。</p><p class="formula">mean(FPS × min(1, 帧预算 / P95) × 已处理更新 / 已生成更新) / 60 × 1000</p>
+      <h3>数据含义</h3><p>帧率与 P95 来自应用的 CPU 侧帧回调间隔。设备温度、系统刷新率和后台负载会影响成绩。页面记录客户端自报的设备和统计，服务端检查格式、测试完整性与计分，未提供设备身份认证或防作弊证明。</p>
+      <h3>参与排名</h3><p>完整完成标准协议的真机成绩参与排名。演示、自定义、模拟器、取消或不完整的记录保留原因供查看。相同厂商与机型采用最高分，重复提交同一记录不会新增成绩。</p>
+      <h3>数据与隐私</h3><p>公开内容包括厂商、机型、Android 版本、屏幕、刷新率与测试统计。请避免在机型等字段填写个人信息。提交接口按网络地址临时限流，地址仅保存在有界内存中。</p>
+    </section>
+  </main>
+  <dialog id="run-dialog"><div class="dialog-head"><h2 id="run-title">测试明细</h2><button id="close-dialog" class="close" aria-label="关闭">×</button></div><div id="run-body" class="dialog-body"></div></dialog>
+  <script>
+    const byId = id => document.getElementById(id);
+    const number = value => Number(value).toLocaleString('zh-CN', {maximumFractionDigits:2});
+    const element = (tag, text, className) => { const item = document.createElement(tag); if (text !== undefined) item.textContent = text; if (className) item.className = className; return item; };
+    let leaderboard = [];
+    let filterTimer;
+    function renderEntries() {
+      const query = byId('model-filter').value.trim().toLowerCase();
+      const entries = leaderboard.filter(item => `${item.manufacturer} ${item.model}`.toLowerCase().includes(query));
+      const container = byId('entries');
+      container.replaceChildren();
+      if (!entries.length) { container.append(element('div', query ? '没有匹配的机型' : '等待第一份标准测试成绩', 'empty')); return; }
+      for (const item of entries) {
+        const row = element('button', undefined, 'entry');
+        row.setAttribute('aria-label', `${item.model}，${number(item.score)} 分，查看测试明细`);
+        row.append(element('span', String(item.rank), 'rank'));
+        const model = element('span', item.model, 'model');
+        model.append(element('span', item.manufacturer, 'manufacturer'));
+        row.append(model, element('span', number(item.score), 'score'));
+        const meta = element('span', `${number(item.refresh_hz)} Hz`, 'detail-meta');
+        meta.append(element('span', `${item.run_count} 次有效测试`, 'manufacturer'));
+        row.append(meta);
+        row.addEventListener('click', () => showRun(item.run_id));
+        container.append(row);
+      }
+    }
+    async function loadBoard() {
+      byId('status').textContent = '更新中';
+      byId('refresh').disabled = true;
+      try {
+        const response = await fetch('./api/leaderboard');
+        if (!response.ok) throw new Error('排行榜暂时无法加载');
+        const data = await response.json();
+        leaderboard = data.entries;
+        byId('model-count').textContent = number(data.model_count);
+        byId('run-count').textContent = number(data.run_count);
+        renderEntries();
+        byId('status').textContent = `更新于 ${new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}`;
+      } catch (error) { byId('status').textContent = error.message; }
+      finally { byId('refresh').disabled = false; }
+    }
+    async function showRun(runId) {
+      const dialog = byId('run-dialog');
+      byId('run-title').textContent = '测试明细';
+      byId('run-body').replaceChildren(element('p','加载中…','description'));
+      if (!dialog.open) dialog.showModal();
+      try {
+        const response = await fetch(`./api/runs/${encodeURIComponent(runId)}`);
+        if (!response.ok) throw new Error('未找到测试记录');
+        const data = await response.json();
+        const report = data.report;
+        byId('run-title').textContent = `${report.device.manufacturer} ${report.device.model}`;
+        const body = byId('run-body');
+        body.replaceChildren();
+        if (!data.submission.ranking_eligible) body.append(element('p', data.submission.reasons.join(' · '), 'reasons'));
+        const summary = element('div',undefined,'run-summary');
+        const score = element('div'); score.append(element('strong',`${number(data.submission.score)} 分`),element('p','服务端重新计分'));
+        const device = element('div'); device.append(element('div',`Android ${report.device.android} · ${report.device.abi}`),element('p',`${report.device.width_px} × ${report.device.height_px} · ${number(report.refresh_hz)} Hz`));
+        summary.append(score,device); body.append(summary);
+        const scroll = element('div',undefined,'board-scroll');
+        const table = element('table',undefined,'case-table');
+        const head = element('thead'); const header = element('tr');
+        for (const label of ['场景','FPS','P95 ms','处理率','队列 P95 ms']) header.append(element('th',label));
+        head.append(header); table.append(head);
+        const rows = element('tbody');
+        for (const item of report.results) {
+          const row = element('tr');
+          const values = [item.case_id,number(item.frame_stats.fps),number(item.frame_stats.p95_ms),`${number(item.generated_updates ? item.applied_updates/item.generated_updates*100 : 0)}%`,number(item.queue_latency_ms.p95_ms)];
+          for (const value of values) row.append(element('td',value));
+          rows.append(row);
+        }
+        table.append(rows); scroll.append(table); body.append(scroll);
+        body.append(element('p',`记录 ${report.run_id} · ${data.received_at} · 客户端自报数据`,'footnote'));
+      } catch (error) { byId('run-body').replaceChildren(element('p',error.message,'description')); }
+    }
+    byId('refresh').addEventListener('click',loadBoard);
+    byId('model-filter').addEventListener('input',() => { clearTimeout(filterTimer); filterTimer = setTimeout(renderEntries,100); });
+    byId('close-dialog').addEventListener('click',() => byId('run-dialog').close());
+    for (const name of ['ranking','help']) byId(`${name}-tab`).addEventListener('click',() => {
+      byId('ranking-view').hidden = name !== 'ranking'; byId('help-view').hidden = name !== 'help';
+      byId('ranking-tab').setAttribute('aria-pressed',String(name === 'ranking'));
+      byId('help-tab').setAttribute('aria-pressed',String(name === 'help'));
+    });
+    loadBoard();
+    const requestedRun = new URLSearchParams(location.search).get('run');
+    if (requestedRun) showRun(requestedRun);
+  </script>
+</body>
+</html>

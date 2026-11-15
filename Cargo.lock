@@ -2310,6 +2310,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-benchmark"
+version = "0.2.0"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "async-channel",
+ "gpui-kit",
+ "gpui-mobile",
+ "gpui-pre",
+ "jni",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gpui-component"
 version = "0.6.5"
 source = "git+https://github.com/longbridge/gpui-kit?rev=13c716b687b47f96a677aaf46c8fa341fa7208da#13c716b687b47f96a677aaf46c8fa341fa7208da"
@@ -2387,20 +2403,6 @@ dependencies = [
  "rust-embed",
  "wasm-bindgen",
  "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "gpui-lab"
-version = "0.1.0"
-dependencies = [
- "android-activity",
- "android_logger",
- "async-channel",
- "gpui-kit",
- "gpui-mobile",
- "gpui-pre",
- "jni",
- "log",
 ]
 
 [[package]]

@@ -14,7 +14,9 @@ import dev.gpui.mobile.GpuiInputActivity;
 
 /** Android owns the native surface and input bridge; GPUI draws the app. */
 public final class MainActivity extends GpuiInputActivity {
+    private final BenchmarkHost benchmarkHost = new BenchmarkHost(this);
     private static native void publishInsets(int left, int top, int right, int bottom);
+    static native void publishHostUpdate();
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -41,6 +43,24 @@ public final class MainActivity extends GpuiInputActivity {
             return insets;
         });
         decor.requestApplyInsets();
+        benchmarkHost.watchNetwork();
+    }
+
+    public String getBenchmarkSettings() { return benchmarkHost.settings(); }
+    public String getBenchmarkDeviceInfo() { return benchmarkHost.deviceInfo().toString(); }
+    public String prepareBenchmark() { return benchmarkHost.prepare().toString(); }
+    public String confirmBenchmarkDevice() { return benchmarkHost.confirmDevice().toString(); }
+    public void finishBenchmark() { benchmarkHost.finish(); }
+    public String getBenchmarkUploadStatus() { return benchmarkHost.status(); }
+    public void saveBenchmarkReport(String report) { benchmarkHost.saveAndUpload(report); }
+    public void benchmarkMarker(String marker, int caseIndex) { benchmarkHost.marker(marker, caseIndex); }
+    public void openLeaderboard() {
+        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(BenchmarkHost.LEADERBOARD_URL)));
+    }
+
+    @Override protected void onDestroy() {
+        benchmarkHost.close();
+        super.onDestroy();
     }
 
     public void setLightSystemBars(boolean light) {
@@ -76,7 +96,7 @@ public final class MainActivity extends GpuiInputActivity {
                 }
                 Intent send = new Intent(Intent.ACTION_SEND);
                 send.setType("text/plain");
-                send.putExtra(Intent.EXTRA_SUBJECT, "GPUI Lab 测试结果");
+                send.putExtra(Intent.EXTRA_SUBJECT, "GPUI benchmark 测试结果");
                 send.putExtra(Intent.EXTRA_TEXT, report);
                 startActivity(Intent.createChooser(send, "分享测试结果"));
             } catch (ActivityNotFoundException | SecurityException | IllegalStateException error) {

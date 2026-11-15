@@ -2,16 +2,18 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    ActiveTheme, Selectable, Sizable,
+    ActiveTheme, Disableable, Selectable, Sizable,
 };
 use gpui_kit::{prelude::*, *};
 
+use crate::benchmark_panel::{BenchmarkPanel, BenchmarkStateChanged};
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::style_preview::StylePreview;
 use crate::workload::{Workload, WorkloadPreset};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
+    Benchmark,
     Stress,
     Styles,
     Help,
@@ -34,6 +36,7 @@ pub struct Lab {
     share_status: Option<String>,
     styles: Entity<StylePreview>,
     light_system_bars: Option<bool>,
+    benchmark: Entity<BenchmarkPanel>,
 }
 
 impl Lab {
@@ -57,8 +60,15 @@ impl Lab {
         .detach();
         let metrics = Metrics::new(60);
         let snapshot = metrics.snapshot();
+        let benchmark = cx.new(|cx| BenchmarkPanel::new(window, cx));
+        cx.subscribe_in(
+            &benchmark,
+            window,
+            |_, _, _: &BenchmarkStateChanged, _, cx| cx.notify(),
+        )
+        .detach();
         Self {
-            page: Page::Stress,
+            page: Page::Benchmark,
             workload: Workload::new(WorkloadPreset::Light),
             metrics,
             snapshot,
@@ -74,6 +84,7 @@ impl Lab {
             share_status: None,
             styles: cx.new(|cx| StylePreview::new(window, cx)),
             light_system_bars: None,
+            benchmark,
         }
     }
 
@@ -379,7 +390,7 @@ impl Lab {
 
     fn share_report(&mut self, cx: &mut Context<Self>) {
         let report = format!(
-            "{{\"app\":\"GPUI Lab\",\"version\":\"0.1.0\",\"abi\":\"{}\",\"workload\":{},\"frames\":{}}}",
+            "{{\"app\":\"GPUI benchmark\",\"version\":\"0.2.0\",\"abi\":\"{}\",\"workload\":{},\"frames\":{}}}",
             std::env::consts::ARCH, self.workload.summary_json(), self.metrics.summary_json()
         );
         log::info!("GPUI_LAB_REPORT {}", report);
@@ -392,7 +403,12 @@ impl Lab {
 
     fn help(&self, cx: &Context<Self>) -> impl IntoElement {
         div().id("help-scroll").flex().flex_col().size_full().overflow_y_scroll().p_4().gap_4()
-            .child(div().text_xl().child("测试方法"))
+            .child(div().text_xl().child("自动跑分"))
+            .child("跑分页点击开始，自动完成 30 个场景，约 12 分钟。每场预热 3 秒、采样 20 秒，覆盖四档热点与滚动、深浅组件，并各重复 3 轮。")
+            .child("系统确认实际刷新模式后建立帧预算，记录每场完整的回调间隔、最大间隔和队列延迟。独立线程生成数据，有界队列连接 UI 消费。")
+            .child("标准成绩自动上传机型排行榜。上传包含机型、系统版本、分辨率、刷新率和测试统计，离线报告在网络恢复后补传。测量期间切到后台、刷新模式或可用窗口变化会结束本次测试。")
+            .child("综合分汇总回调速率、P95 时序与数据消费比例。GPU 呈现可通过电脑端一键采集脚本，配合 SurfaceFlinger 和 Perfetto 检查。")
+            .child(div().text_xl().child("手动压力测试"))
             .child("选择负载，点击开始，手动滑动列表或启用自动滚动。保持相同主题、屏幕刷新率和温度，再比较不同负载。暂停后可分享结果。")
             .child(div().text_lg().child("负载"))
             .child("轻量 1 万行 / 1 流 / 20 次每秒。标准 5 万行 / 4 流 / 400 次每秒。高压 10 万行 / 8 流 / 4,000 次每秒。极限 20 万行 / 16 流 / 16,000 次每秒。")
@@ -410,14 +426,15 @@ impl Lab {
             })))
             .when_some(self.share_status.clone(), |view, status| view.child(div().text_sm().child(status)))
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
-                .child("GPUI Lab 0.1.0 · GPUI 0.3.6\nAndroid 移动适配来自社区 gpui-mobile。样式组件来自 GPUI Kit。"))
+                .child("GPUI benchmark 0.2.0 · GPUI 0.3.6\nAndroid 移动适配来自社区 gpui-mobile。样式组件来自 GPUI Kit。"))
     }
 }
 
 impl Render for Lab {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let light = !theme.is_dark();
+        let benchmark_page = self.page == Page::Benchmark;
+        let light = !theme.is_dark() && !benchmark_page;
         if self.light_system_bars != Some(light) {
             crate::android_host::set_light_system_bars(light);
             self.light_system_bars = Some(light);
@@ -425,6 +442,7 @@ impl Render for Lab {
         let [left, top, right, bottom] =
             crate::android_host::safe_area().map(|inset| px(inset as f32 / window.scale_factor()));
         let content = match self.page {
+            Page::Benchmark => self.benchmark.clone().into_any_element(),
             Page::Stress => self.stress(cx).into_any_element(),
             Page::Styles => self.styles.clone().into_any_element(),
             Page::Help => self.help(cx).into_any_element(),
@@ -433,12 +451,20 @@ impl Render for Lab {
             .flex()
             .flex_col()
             .size_full()
-            .bg(theme.background)
+            .bg(if benchmark_page {
+                rgb(0x080d14).into()
+            } else {
+                theme.background
+            })
             .pl(left)
             .pt(top)
             .pr(right)
             .pb(bottom)
-            .text_color(theme.foreground)
+            .text_color(if benchmark_page {
+                rgb(0xf2f7fa).into()
+            } else {
+                theme.foreground
+            })
             .text_sm()
             .child(
                 div()
@@ -454,7 +480,7 @@ impl Render for Lab {
                         div()
                             .text_lg()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("GPUI Lab"),
+                            .child("GPUI benchmark"),
                     )
                     .child(
                         div()
@@ -474,6 +500,7 @@ impl Render for Lab {
                     .border_color(theme.border)
                     .children(
                         [
+                            (Page::Benchmark, "跑分"),
                             (Page::Stress, "压力"),
                             (Page::Styles, "样式"),
                             (Page::Help, "帮助"),
@@ -484,8 +511,15 @@ impl Render for Lab {
                             command(("navigation", index), label)
                                 .flex_1()
                                 .selected(self.page == page)
+                                .disabled(self.benchmark.read(cx).is_running())
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.page = page;
+                                    if page == Page::Benchmark {
+                                        this.running = false;
+                                        this.last_tick = None;
+                                        this.metrics.pause();
+                                        this.snapshot = this.metrics.snapshot();
+                                    }
                                     if page != Page::Styles {
                                         window.dismiss_virtual_keyboard();
                                     }

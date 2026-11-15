@@ -124,6 +124,155 @@ fn percentile(sorted: &[f64], percentage: usize) -> f64 {
     sorted[rank.saturating_sub(1)]
 }
 
+pub const MAX_SESSION_SAMPLES: usize = 100_000;
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct LatencySnapshot {
+    pub sample_count: usize,
+    pub average_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub max_ms: f64,
+    pub sample_overflow: bool,
+}
+
+/// Full measurement-window samples. Overflow invalidates a benchmark result.
+#[derive(Default)]
+pub struct DurationDistribution {
+    samples: Vec<Duration>,
+    count: usize,
+    total: Duration,
+    maximum: Duration,
+    overflow: bool,
+}
+
+impl DurationDistribution {
+    pub fn record(&mut self, duration: Duration) {
+        self.count = self.count.saturating_add(1);
+        self.total = self.total.saturating_add(duration);
+        self.maximum = self.maximum.max(duration);
+        if self.samples.len() < MAX_SESSION_SAMPLES {
+            self.samples.push(duration);
+        } else {
+            self.overflow = true;
+        }
+    }
+
+    pub fn snapshot(&self) -> LatencySnapshot {
+        let mut snapshot = LatencySnapshot {
+            sample_count: self.count,
+            max_ms: self.maximum.as_secs_f64() * 1_000.0,
+            sample_overflow: self.overflow,
+            ..LatencySnapshot::default()
+        };
+        if self.count > 0 {
+            let mut sorted: Vec<f64> = self.samples.iter().map(Duration::as_secs_f64).collect();
+            sorted.sort_unstable_by(f64::total_cmp);
+            snapshot.average_ms = self.total.as_secs_f64() * 1_000.0 / self.count as f64;
+            snapshot.p95_ms = percentile(&sorted, 95) * 1_000.0;
+            snapshot.p99_ms = percentile(&sorted, 99) * 1_000.0;
+        }
+        snapshot
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SessionSnapshot {
+    pub measurement: &'static str,
+    pub sample_count: usize,
+    pub elapsed_seconds: f64,
+    pub refresh_hz: f64,
+    pub budget_ms: f64,
+    pub fps: f64,
+    pub average_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub max_ms: f64,
+    pub over_budget_count: usize,
+    pub over_budget_ratio: f64,
+    pub sample_overflow: bool,
+}
+
+pub struct SessionMetrics {
+    distribution: DurationDistribution,
+    last_frame: Option<Instant>,
+    refresh_hz: f64,
+    over_budget_count: usize,
+    recent: VecDeque<f64>,
+}
+
+impl SessionMetrics {
+    pub fn new(refresh_hz: f64) -> Self {
+        Self {
+            distribution: DurationDistribution::default(),
+            last_frame: None,
+            refresh_hz: if refresh_hz.is_finite() && refresh_hz > 0.0 {
+                refresh_hz
+            } else {
+                60.0
+            },
+            over_budget_count: 0,
+            recent: VecDeque::with_capacity(120),
+        }
+    }
+
+    pub fn start(&mut self, now: Instant) {
+        self.last_frame = Some(now);
+    }
+
+    pub fn frame(&mut self, now: Instant) {
+        if let Some(previous) = self.last_frame {
+            if let Some(interval) = now.checked_duration_since(previous) {
+                if !interval.is_zero() {
+                    self.distribution.record(interval);
+                    let milliseconds = interval.as_secs_f64() * 1_000.0;
+                    if milliseconds > 1_000.0 / self.refresh_hz {
+                        self.over_budget_count += 1;
+                    }
+                    if self.recent.len() == 120 {
+                        self.recent.pop_front();
+                    }
+                    self.recent.push_back(milliseconds);
+                }
+            }
+        }
+        self.last_frame = Some(now);
+    }
+
+    pub fn recent_intervals_ms(&self) -> Vec<f64> {
+        self.recent.iter().copied().collect()
+    }
+
+    pub fn snapshot(&self) -> SessionSnapshot {
+        let distribution = self.distribution.snapshot();
+        let elapsed_seconds = self.distribution.total.as_secs_f64();
+        let count = distribution.sample_count;
+        SessionSnapshot {
+            measurement: "frame_callback_intervals",
+            sample_count: count,
+            elapsed_seconds,
+            refresh_hz: self.refresh_hz,
+            budget_ms: 1_000.0 / self.refresh_hz,
+            fps: if elapsed_seconds > 0.0 {
+                count as f64 / elapsed_seconds
+            } else {
+                0.0
+            },
+            average_ms: distribution.average_ms,
+            p95_ms: distribution.p95_ms,
+            p99_ms: distribution.p99_ms,
+            max_ms: distribution.max_ms,
+            over_budget_count: self.over_budget_count,
+            over_budget_ratio: if count > 0 {
+                self.over_budget_count as f64 / count as f64
+            } else {
+                0.0
+            },
+            sample_overflow: distribution.sample_overflow,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +321,38 @@ mod tests {
         assert_eq!(result.p99_ms, 8.0);
         metrics.reset();
         assert_eq!(metrics.snapshot().sample_count, 0);
+    }
+
+    #[test]
+    fn session_statistics_preserve_early_stalls_and_every_interval() {
+        let mut metrics = SessionMetrics::new(120.0);
+        let mut time = Instant::now();
+        metrics.start(time);
+        time += Duration::from_millis(200);
+        metrics.frame(time);
+        for _ in 0..1_200 {
+            time += Duration::from_millis(8);
+            metrics.frame(time);
+        }
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.sample_count, 1_201);
+        assert_eq!(snapshot.max_ms, 200.0);
+        assert_eq!(snapshot.over_budget_count, 1);
+        assert_eq!(metrics.recent_intervals_ms().len(), 120);
+        assert!((snapshot.elapsed_seconds - 9.8).abs() < 0.0001);
+    }
+
+    #[test]
+    fn session_overflow_is_reported_without_unbounded_storage() {
+        let mut distribution = DurationDistribution::default();
+        for _ in 0..=MAX_SESSION_SAMPLES {
+            distribution.record(Duration::from_millis(1));
+        }
+        assert_eq!(distribution.samples.len(), MAX_SESSION_SAMPLES);
+        assert!(distribution.snapshot().sample_overflow);
+        assert_eq!(
+            distribution.snapshot().sample_count,
+            MAX_SESSION_SAMPLES + 1
+        );
     }
 }
