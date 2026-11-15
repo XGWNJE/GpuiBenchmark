@@ -33,5 +33,6 @@ fn android_main(app: android_activity::AndroidApp) {
             cx.new(|cx| gpui_kit::component::Root::new(lab, window, cx))
         })
         .expect("open GPUI Lab window");
+        cx.activate(true);
     });
 }

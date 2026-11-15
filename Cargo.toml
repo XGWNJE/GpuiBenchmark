@@ -17,6 +17,7 @@ android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
 log = "0.4"
 jni = "0.22"
+async-channel = "2"
 
 [profile.dev]
 debug = 0
@@ -28,4 +29,3 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 panic = "abort"
-

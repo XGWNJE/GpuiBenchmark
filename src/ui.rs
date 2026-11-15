@@ -33,10 +33,20 @@ pub struct Lab {
     compact: bool,
     share_status: Option<String>,
     styles: Entity<StylePreview>,
+    light_system_bars: Option<bool>,
 }
 
 impl Lab {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let inset_updates = crate::android_host::inset_updates();
+        cx.spawn(async move |this, cx| {
+            while inset_updates.recv().await.is_ok() {
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.observe_window_activation(window, |this, window, cx| {
             this.update_foreground(window, cx);
         })
@@ -63,6 +73,7 @@ impl Lab {
             compact: false,
             share_status: None,
             styles: cx.new(|cx| StylePreview::new(window, cx)),
+            light_system_bars: None,
         }
     }
 
@@ -223,6 +234,7 @@ impl Lab {
                 .map(|row| {
                     div()
                         .id(("record", row.id))
+                        .w_full()
                         .flex()
                         .items_center()
                         .justify_between()
@@ -405,8 +417,13 @@ impl Lab {
 impl Render for Lab {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let visible = window.fully_visible_bounds();
-        let viewport = window.viewport_size();
+        let light = !theme.is_dark();
+        if self.light_system_bars != Some(light) {
+            crate::android_host::set_light_system_bars(light);
+            self.light_system_bars = Some(light);
+        }
+        let [left, top, right, bottom] =
+            crate::android_host::safe_area().map(|inset| px(inset as f32 / window.scale_factor()));
         let content = match self.page {
             Page::Stress => self.stress(cx).into_any_element(),
             Page::Styles => self.styles.clone().into_any_element(),
@@ -417,13 +434,12 @@ impl Render for Lab {
             .flex_col()
             .size_full()
             .bg(theme.background)
+            .pl(left)
+            .pt(top)
+            .pr(right)
+            .pb(bottom)
             .text_color(theme.foreground)
             .text_sm()
-            // Insets are supplied by the Android host in window-local logical pixels.
-            .pt(visible.origin.y)
-            .pb((viewport.height - visible.bottom()).max(px(0.)))
-            .pl(visible.origin.x)
-            .pr((viewport.width - visible.right()).max(px(0.)))
             .child(
                 div()
                     .flex()

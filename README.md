@@ -41,8 +41,8 @@ adb shell am start -n dev.gpui.lab/.MainActivity
 ```powershell
 rustup target add aarch64-linux-android x86_64-linux-android
 pwsh -File scripts/build-android.ps1
-# 模拟器调试包
-pwsh -File scripts/build-android.ps1 -Abi x86_64 -Configuration Debug
+# 模拟器发布包
+pwsh -File scripts/build-android.ps1 -Abi x86_64 -Configuration Release
 ```
 
 产物与 SHA256 位于 `dist/`。构建目录复用 `.build/`，编译并发为 2，构建缓存预算为 12 GiB。需要回收时运行 `pwsh -File scripts/build-android.ps1 -Clean`。
@@ -57,6 +57,8 @@ GPUI 固定为 `0.3.6`，Kit 与移动后端固定 Git 提交，依赖版本见 
 cargo fmt --check
 cargo test --lib
 ```
+
+已通过 4 项模型与统计测试、ARM64/x86_64 Release 构建和 APK 签名校验。API 36 x86_64 硬件加速模拟器已检查安全区、深浅主题、按钮与状态控件、文字输入、滚动、后台恢复和 JSON 分享面板。极限负载持续约 78 秒，累计更新约 125 万次，跳过 0 次。模拟器使用宿主 RTX 2080 Ti Vulkan。ARM64 包在 x86 转译环境启动失败，真机兼容性与性能待设备实测。
 
 比较手机表现时使用 ARM64 Release 包，保持相同屏幕刷新率、温度、主题与滚动方式，每档至少运行 60 秒，再暂停并分享结果。样式页可在负载持续运行时切换，检查触控、输入法和滚动。模拟器用于启动及交互回归。
 
