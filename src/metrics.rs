@@ -1,0 +1,176 @@
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+const MAX_SAMPLES: usize = 600;
+
+/// CPU-side frame callback intervals in a bounded rolling window.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MetricsSnapshot {
+    pub sample_count: usize,
+    pub total_intervals: u64,
+    pub elapsed_seconds: f64,
+    pub refresh_hz: u32,
+    pub budget_ms: f64,
+    pub fps: f64,
+    pub average_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub over_budget_count: usize,
+    pub over_budget_ratio: f64,
+}
+
+pub struct Metrics {
+    intervals: VecDeque<Duration>,
+    last_frame: Option<Instant>,
+    active: bool,
+    refresh_hz: u32,
+    total_intervals: u64,
+    elapsed: Duration,
+}
+
+impl Metrics {
+    pub fn new(refresh_hz: u32) -> Self {
+        Self {
+            intervals: VecDeque::with_capacity(MAX_SAMPLES),
+            last_frame: None,
+            active: false,
+            refresh_hz: refresh_hz.max(1),
+            total_intervals: 0,
+            elapsed: Duration::ZERO,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.intervals.clear();
+        self.last_frame = None;
+        self.total_intervals = 0;
+        self.elapsed = Duration::ZERO;
+    }
+
+    pub fn pause(&mut self) {
+        self.active = false;
+        self.last_frame = None;
+    }
+
+    pub fn resume(&mut self) {
+        self.active = true;
+        self.last_frame = None;
+    }
+
+    pub fn set_refresh_hz(&mut self, refresh_hz: u32) {
+        self.refresh_hz = refresh_hz.max(1);
+    }
+
+    pub fn frame(&mut self, now: Instant) {
+        if !self.active {
+            return;
+        }
+        if let Some(previous) = self.last_frame {
+            if let Some(interval) = now.checked_duration_since(previous) {
+                if !interval.is_zero() {
+                    if self.intervals.len() == MAX_SAMPLES {
+                        self.intervals.pop_front();
+                    }
+                    self.intervals.push_back(interval);
+                    self.total_intervals = self.total_intervals.saturating_add(1);
+                    self.elapsed = self.elapsed.saturating_add(interval);
+                }
+            }
+        }
+        self.last_frame = Some(now);
+    }
+
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        let sample_count = self.intervals.len();
+        let budget_ms = 1_000.0 / self.refresh_hz as f64;
+        let mut snapshot = MetricsSnapshot {
+            sample_count,
+            total_intervals: self.total_intervals,
+            elapsed_seconds: self.elapsed.as_secs_f64(),
+            refresh_hz: self.refresh_hz,
+            budget_ms,
+            ..MetricsSnapshot::default()
+        };
+        if sample_count == 0 {
+            return snapshot;
+        }
+        let mut sorted: Vec<f64> = self.intervals.iter().map(Duration::as_secs_f64).collect();
+        sorted.sort_unstable_by(f64::total_cmp);
+        let total_seconds: f64 = sorted.iter().sum();
+        snapshot.fps = sample_count as f64 / total_seconds;
+        snapshot.average_ms = total_seconds * 1_000.0 / sample_count as f64;
+        snapshot.p95_ms = percentile(&sorted, 95) * 1_000.0;
+        snapshot.p99_ms = percentile(&sorted, 99) * 1_000.0;
+        snapshot.over_budget_count = sorted
+            .iter()
+            .filter(|&&seconds| seconds * 1_000.0 > budget_ms)
+            .count();
+        snapshot.over_budget_ratio = snapshot.over_budget_count as f64 / sample_count as f64;
+        snapshot
+    }
+
+    pub fn summary_json(&self) -> String {
+        let s = self.snapshot();
+        format!(
+            "{{\"measurement\":\"frame_callback_intervals\",\"window_limit\":{},\"sample_count\":{},\"total_intervals\":{},\"elapsed_seconds\":{:.3},\"refresh_hz\":{},\"budget_ms\":{:.3},\"fps\":{:.2},\"average_ms\":{:.3},\"p95_ms\":{:.3},\"p99_ms\":{:.3},\"over_budget_count\":{},\"over_budget_ratio\":{:.5}}}",
+            MAX_SAMPLES, s.sample_count, s.total_intervals, s.elapsed_seconds, s.refresh_hz,
+            s.budget_ms, s.fps, s.average_ms, s.p95_ms, s.p99_ms, s.over_budget_count, s.over_budget_ratio
+        )
+    }
+}
+
+fn percentile(sorted: &[f64], percentage: usize) -> f64 {
+    let rank = (sorted.len() * percentage).div_ceil(100);
+    sorted[rank.saturating_sub(1)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentiles_and_over_budget_ratio_use_callback_intervals() {
+        let mut metrics = Metrics::new(60);
+        metrics.resume();
+        let mut time = Instant::now();
+        metrics.frame(time);
+        for milliseconds in 1..=100 {
+            time += Duration::from_millis(milliseconds);
+            metrics.frame(time);
+        }
+        let result = metrics.snapshot();
+        assert_eq!(result.sample_count, 100);
+        assert_eq!(result.p95_ms, 95.0);
+        assert_eq!(result.p99_ms, 99.0);
+        assert_eq!(result.over_budget_count, 84);
+        assert!((result.average_ms - 50.5).abs() < 0.0001);
+        assert!((result.over_budget_ratio - 0.84).abs() < 0.0001);
+    }
+
+    #[test]
+    fn rolling_samples_and_pause_do_not_include_background_time() {
+        let mut metrics = Metrics::new(120);
+        metrics.resume();
+        let mut time = Instant::now();
+        metrics.frame(time);
+        for _ in 0..700 {
+            time += Duration::from_millis(8);
+            metrics.frame(time);
+        }
+        assert_eq!(metrics.snapshot().sample_count, MAX_SAMPLES);
+        assert_eq!(metrics.snapshot().total_intervals, 700);
+        metrics.pause();
+        time += Duration::from_secs(60);
+        metrics.frame(time);
+        metrics.resume();
+        metrics.frame(time);
+        time += Duration::from_millis(8);
+        metrics.frame(time);
+        let result = metrics.snapshot();
+        assert_eq!(result.total_intervals, 701);
+        assert!((result.elapsed_seconds - 5.608).abs() < 0.0001);
+        assert_eq!(result.p99_ms, 8.0);
+        metrics.reset();
+        assert_eq!(metrics.snapshot().sample_count, 0);
+    }
+}

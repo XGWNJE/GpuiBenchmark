@@ -1,0 +1,7 @@
+/.build/
+/.build.lock
+/dist/
+/android/.gradle/
+/android/local.properties
+/target/
+*.log
